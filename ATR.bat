@@ -11,7 +11,7 @@ $ProfileFile = "ATRprofiles.txt"
 $CurrentProfile = $null
 
 function Show-Help {
-    Write-Host "`nAvailable commands:" -ForegroundColor White
+    Write-Host "`nAvailable Commands:" -ForegroundColor White
     Write-Host "  profile-add      - Create a new profile" -ForegroundColor White
     Write-Host "  profile-set      - Select an existing profile" -ForegroundColor White
     Write-Host "  profile-del      - Delete a profile" -ForegroundColor White
@@ -36,10 +36,10 @@ function Show-Help {
 function Profile-New {
     param([string]$FilePath = $ProfileFile)
 
-    $ProfileName  = Read-Host "`nProfile name: "
-    $AppKey       = Read-Host "App Key: "
-    $AppSecret    = Read-Host "App Secret: "
-    $RefreshToken = Read-Host "Refresh Token: "
+    $ProfileName  = Read-Host "`nProfile name"
+    $AppKey       = Read-Host "App Key"
+    $AppSecret    = Read-Host "App Secret"
+    $RefreshToken = Read-Host "Refresh Token"
     Write-Host ""
 
     $ProfileLine = "$($ProfileName.Trim()),$($AppKey.Trim()),$($AppSecret.Trim()),$($RefreshToken.Trim())"
@@ -87,11 +87,11 @@ function Profile-Set {
     $Profiles = Get-Profiles -FilePath $FilePath
     if ($Profiles.Count -eq 0) { Write-Host "No profiles exist" -ForegroundColor DarkRed; return $null }
 
-    Write-Host "`nAvailable profiles:" -ForegroundColor White
+    Write-Host "`nProfiles:" -ForegroundColor White
     foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" -ForegroundColor White }
     Write-Host ""
 
-    $Selection = Read-Host "Profile index: "
+    $Selection = Read-Host "Profile index"
     Write-Host ""
 
     $selectedProfile = $Profiles | Where-Object { $_.DisplayIndex -eq $Selection }
@@ -111,11 +111,11 @@ function Profile-Del {
     $Profiles = Get-Profiles -FilePath $FilePath
     if ($Profiles.Count -eq 0) { Write-Host "No profiles exist" -ForegroundColor DarkRed; return }
 
-    Write-Host "`nAvailable profiles:" -ForegroundColor White
+    Write-Host "`nProfiles:" -ForegroundColor White
     foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" }
     Write-Host ""
 
-    $Selection = Read-Host "Profile index: "
+    $Selection = Read-Host "Profile index"
     Write-Host ""
 
     $profileToDelete = $Profiles | Where-Object { $_.DisplayIndex -eq $Selection }
@@ -157,7 +157,7 @@ function Profile-List {
     $Profiles = Get-Profiles -FilePath $FilePath
     if ($Profiles.Count -eq 0) { Write-Host "No profiles exist" -ForegroundColor DarkRed; return }
 
-    Write-Host "`nAvailable profiles:" -ForegroundColor White
+    Write-Host "`nProfiles:" -ForegroundColor White
     foreach ($p in $Profiles) {
         $currentIndicator = if ($CurrentProfile -and $CurrentProfile.Name -eq $p.Name) { " (current)" } else { "" }
         Write-Host "  $($p.DisplayIndex): $($p.Name)$currentIndicator" -ForegroundColor White
