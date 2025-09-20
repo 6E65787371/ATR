@@ -5,7 +5,11 @@ set /p APP_SECRET=Enter App Secret:
 set /p REDIRECT_URI=Enter Redirect URI: 
 set STATE=12345
 
-echo "https://www.dropbox.com/oauth2/authorize?client_id=%APP_KEY%&response_type=code&token_access_type=offline&redirect_uri=%REDIRECT_URI%&state=%STATE%"
+echo.
+
+echo https://www.dropbox.com/oauth2/authorize?client_id=%APP_KEY%^&response_type=code^&token_access_type=offline^&redirect_uri=%REDIRECT_URI%^&state=%STATE%
+
+echo.
 
 set /p AUTHORIZATION_CODE=Enter Authorization Code: 
 
