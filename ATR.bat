@@ -872,9 +872,9 @@ $exitRequested = $false
 
 Write-Host '    e Y8b  88P''888''Y88 888 88e ' -ForegroundColor DarkBlue
 Write-Host '   d8b Y8b P''  888  ''Y 888 888D' -ForegroundColor DarkBlue
-Write-Host '  d888b Y8b    888     888 88"' -ForegroundColor DarkBlue
-Write-Host ' d888888888b   888     888 b,  ' -ForegroundColor DarkBlue
-Write-Host 'd8888888b Y8b  888     888 88b,' -ForegroundColor DarkBlue
+Write-Host '  d888b Y8b    888     888 88"   ' -ForegroundColor DarkBlue
+Write-Host ' 6E65787371b   888     888 b,    ' -ForegroundColor DarkBlue
+Write-Host 'd8888888b Y8b  888     888 88b,  ' -ForegroundColor DarkBlue
 Write-Host ""
 
 while (-not $exitRequested) {
