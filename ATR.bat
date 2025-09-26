@@ -1059,16 +1059,29 @@ function Cmd-Download {
 # CMD-DOWNLOAD
 `$filePath = "$filePath"
 if (Test-Path `$filePath) {
-`$originalName = [System.IO.Path]::GetFileName(`$filePath)
-`$fileName = "`$originalName"
+if ((Get-Item `$filePath) -is [System.IO.DirectoryInfo]) {
+`$folderName = (Get-Item `$filePath).Name
+`$zipFileName = "`$folderName_`$(Get-Date -Format 'yyyyMMdd_HHmmss').zip"
+`$zipPath = "`$env:TEMP\`$zipFileName"
+Compress-Archive -Path "`$filePath\*" -DestinationPath `$zipPath -CompressionLevel Optimal
+`$fileContent = [System.IO.File]::ReadAllBytes(`$zipPath)
+`$uri = "https://content.dropboxapi.com/2/files/upload"
+`$apiArg = @{path = "/`$zipFileName"; mode = "overwrite"; autorename = `$true; mute = `$true} | ConvertTo-Json -Compress
+`$headers = @{Authorization = "Bearer `$accessToken"; "Dropbox-API-Arg" = `$apiArg; "Content-Type" = "application/octet-stream"}
+Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$fileContent
+Remove-Item `$zipPath -Force
+"Folder uploaded successfully as: `$zipFileName"
+} else {
+`$fileName = [System.IO.Path]::GetFileName(`$filePath)
 `$fileContent = [System.IO.File]::ReadAllBytes(`$filePath)
 `$uri = "https://content.dropboxapi.com/2/files/upload"
 `$apiArg = @{path = "/`$fileName"; mode = "overwrite"; autorename = `$true; mute = `$true} | ConvertTo-Json -Compress
 `$headers = @{Authorization = "Bearer `$accessToken"; "Dropbox-API-Arg" = `$apiArg; "Content-Type" = "application/octet-stream"}
 Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$fileContent
 "File uploaded successfully: `$fileName"
+}
 } else {
-"File not found: `$filePath"
+    "Path not found: `$filePath"
 }
 "@
 
