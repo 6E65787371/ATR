@@ -94,7 +94,7 @@ function Profile-Set {
     if ($Profiles.Count -eq 0) { Write-Host "No profiles exist" -ForegroundColor DarkRed; return $null }
 
     Write-Host "`nProfiles:" -ForegroundColor White
-    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" -ForegroundColor White }
+    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" -ForegroundColor DarkYellow }
     Write-Host ""
 
     $Selection = Read-Host "Profile index"
@@ -118,7 +118,7 @@ function Profile-Del {
     if ($Profiles.Count -eq 0) { Write-Host "No profiles exist" -ForegroundColor DarkRed; return }
 
     Write-Host "`nProfiles:" -ForegroundColor White
-    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" }
+    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" -ForegroundColor DarkYellow }
     Write-Host ""
 
     $Selection = Read-Host "Profile index"
