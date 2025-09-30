@@ -2,7 +2,7 @@
 
 @echo off & setlocal enabledelayedexpansion
 
-powershell -noprofile -executionpolicy remotesigned "iex ((gc '%~f0') -join \"`n\")"
+powershell -noprofile -executionpolicy bypass "iex ((gc '%~f0') -join \"`n\")"
 exit /b
 
 : #>
